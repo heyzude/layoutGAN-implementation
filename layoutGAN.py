@@ -10,7 +10,7 @@ class layoutGAN(object):
 
     model_name = 'layoutGAN'
 
-    def __init__(self, sess, epoch, p, theta, polygon_type, geopara_range, geopara_mean, geopara_std, geo_range, data_X, data_Y, mu=0, std=0.02, learning_rate=0.00002, beta1=0.5, beta2=0.999):
+    def __init__(self, sess, epoch, p, theta, polygon_type, geopara_range, geopara_mean, geopara_std, geo_range, which_discriminator, mu=0, std=0.02, learning_rate=0.00002, beta1=0.5, beta2=0.999):
         self.sess = sess
         self.epoch = epoch
         #self.batch_size = batch_size
@@ -23,8 +23,7 @@ class layoutGAN(object):
         self.geopara_std = geopara_std # in form of [geopara1_std, geopara2_std, ...]
         self.polygon_type = polygon_type
         self.geo_range = geo_range # range of 2-D canvas of our data. in form of [[x_lowerbound, x_upperbound], [y_lowerbound, y_upperbound]]
-        self.data_X = data_X
-        self.data_Y = data_Y
+        self.which_discriminator = which_discriminator
         self.mu = mu
         self.std = std
         self.learning_rate = learning_rate
@@ -283,9 +282,9 @@ class layoutGAN(object):
             k = self.num_classes + self.num_geopara
 
             if geo_type == 'point':
-                rendered = point_renderer(p_variable, theta_variable)
+                rendered = self.point_renderer(p_variable, theta_variable)
             if geo_type == 'rectangle':
-                rendered = rectangle_renderer(p_variable, theta_variable)
+                rendered = self.rectangle_renderer(p_variable, theta_variable)
             '''
             if geo_type = 'triangle':
                 rendered = triangle_renderer()
@@ -321,61 +320,63 @@ class layoutGAN(object):
 
 
 
-    def build_model(self, which_discriminator):
+    def build_model(self):
 
         ### ground-truth value also should be sigmoided.
 
-        self.p_raw = tf.placeholder(tf.float32, shape=[None, self.num_classes])
+        self.p_input = tf.placeholder(tf.float32, shape=[None, self.num_classes])
         self.theta_input = tf.placeholder(tf.float32, shape=[None, self.num_geopara])
 
 
         # fake data generation
         G_p, G_theta = self.generator(reuse=False)
 
-        if which_discriminator == 'rb':
+        if self.which_discriminator == 'rb':
             # real data
-            D_real_rb, D_real_logits_rb = self.discriminator_rb(self.p_raw, self.theta_input, reuse=False)
+            D_real_rb, D_real_logits_rb = self.discriminator_rb(self.p_input, self.theta_input, reuse=False)
 
             # fake data
             D_fake_rb, D_fake_logits_rb = self.discriminator_rb(G_p, G_theta, reuse=False)
 
             # loss of discriminator
-            D_loss_real_rb = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_real_logits_rb, labels=tf.ones_like(D_real_rb)))
-            D_loss_fake_rb = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_fake_logits_rb, labels=tf.zeros_like(D_fake_rb)))
-            self.D_loss_rb = D_loss_real_rb + D_loss_fake_rb
+            D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_real_logits_rb, labels=tf.ones_like(D_real_rb)))
+            D_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_fake_logits_rb, labels=tf.zeros_like(D_fake_rb)))
+            self.D_loss = D_loss_real + D_loss_fake
 
             # loss of generator
             self.G_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_fake_logits_rb, labels=tf.ones_like(D_fake_rb)))
-        elif which_discriminator == 'rb':
+        elif self.which_discriminator == 'rb':
             # real data
-            D_real_wr, D_real_logits_wr = self.discriminator_wr(self.p_raw, self.theta_input, reuse=False)
+            D_real_wr, D_real_logits_wr = self.discriminator_wr(self.p_input, self.theta_input, reuse=False)
 
             # fake data
             D_fake_wr, D_fake_logits_wr = self.discriminator_wr(G_p, G_theta, reuse=False)
 
             # loss of discriminator
-            D_loss_real_wr = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_real_logits_wr, labels=tf.ones_like(D_real_wr)))
-            D_loss_fake_wr = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_fake_logits_wr, labels=tf.zeros_like(D_fake_wr)))
-            self.D_loss_wr = D_loss_real_wr + D_loss_fake_wr
+            D_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_real_logits_wr, labels=tf.ones_like(D_real_wr)))
+            D_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_fake_logits_wr, labels=tf.zeros_like(D_fake_wr)))
+            self.D_loss = D_loss_real + D_loss_fake
 
             # loss of generator
             self.G_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=D_fake_logits_wr, labels=tf.ones_like(D_fake_wr)))
         else:
             raise NotImplementedError
 
-        # train을 따로 시켜줘야 하므로 discriminator와 generator의 variable을 나눠줌. tensorflow 구현 문제로 인해 완벽히 나누진 못한듯 하다.
+        # train을 따로 시켜줘야 하므로 discriminator와 generator의 variable을 나눠줌. tensorflow 구현 문제로 인해 완벽히 나누진 못함
         t_vars = tf.trainable_variables()
         d_vars = [var for var in t_vars if 'd_' in var.name]
         g_vars = [var for var in t_vars if 'g_' in var.name]
 
         # optimizer
-        if which_discriminator == 'rb':
-            self.d_optim = tf.train.AdamOptimizer(self.learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.D_loss_rb, var_list=d_vars)
-        elif which_discriminator == 'rb':
-            self.d_optim = tf.train.AdamOptimizer(self.learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.D_loss_wr, var_list=d_vars)
+        if self.which_discriminator == 'rb':
+            self.D_optim = tf.train.AdamOptimizer(self.learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.D_loss, var_list=d_vars)
+        elif self.which_discriminator == 'rb':
+            self.D_optim = tf.train.AdamOptimizer(self.learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.D_loss, var_list=d_vars)
         else:
             raise NotImplementedError
 
+        self.G_optim = tf.train.AdamOptimizer(self.learning_rate * 5, beta1=self.beta1, beta2=self.beta2) \
+            .minimize(self.G_loss, var_list=g_vars)
 
 
 
@@ -387,6 +388,10 @@ class layoutGAN(object):
 
         for epoch in range(self.epoch):
 
+            _, d_loss = self.sess.run([self.D_optim, self.D_loss],
+                                      feed_dict={self.p_input: self.data_p, self.theta_input: self.data_theta})
+
+            _, g_loss = self.sess.run([self.G_optim, self.G_loss])
 
 
 
