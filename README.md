@@ -2,6 +2,6 @@
 
 https://openreview.net/forum?id=HJxB5sRcFQ
 
-Core logics inside, but not fully runnable code.
+Core logics inside TF code.
 
 For practice.
