@@ -1,4 +1,4 @@
-# layoutGAN implementation in TF
+# layoutGAN implementation in Tensorflow
 
 https://openreview.net/forum?id=HJxB5sRcFQ
 
